@@ -6,9 +6,10 @@ import { useAuth } from './AuthProvider'
 import AuthGate from './AuthGate'
 import PageHead from './PageHead'
 import Done from './Done'
+import { toast } from './Toaster'
 import { useCatalog } from '../lib/catalog'
 import { BIZ, STAGES } from '../lib/config'
-import { loadRazorpay } from '../lib/razorpay-client'
+import { loadRazorpay, startRazorpayPayment } from '../lib/razorpay-client'
 import { digits, inr } from '../lib/utils'
 
 export default function ApplyFlow({ initialCourseId }) {
@@ -39,6 +40,7 @@ export default function ApplyFlow({ initialCourseId }) {
   const [done, setDone] = useState(null)
 
   useEffect(() => {
+    loadRazorpay()
     fetch('/api/razorpay/order')
       .then((r) => r.json())
       .then((d) => {
@@ -190,6 +192,7 @@ export default function ApplyFlow({ initialCourseId }) {
       } else {
         setErr('Please complete all highlighted fields (valid 10-digit mobile numbers and age 14–70).')
       }
+      setTimeout(() => document.querySelector('.bad, .bad-lb')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)
       return
     }
 
@@ -201,76 +204,21 @@ export default function ApplyFlow({ initialCourseId }) {
     }
 
     setBusy(true); setErr('')
-    const loaded = await loadRazorpay()
-    if (!loaded || !window.Razorpay) {
-      setBusy(false)
-      setErr('Could not load Razorpay Checkout. Check your internet connection or use UPI QR (Manual check).')
-      return
-    }
-
-    const orderRes = await fetch('/api/razorpay/order', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        amountPaise: payAmount * 100,
-        serviceName: `Academy · ${course.name} (${payOptionLabel})`,
-        date: f.batch,
-      }),
-    })
-    const orderData = await orderRes.json().catch(() => ({}))
-    if (!orderRes.ok || !orderData.orderId) {
-      setBusy(false)
-      setErr(orderData.error || 'Could not start Razorpay payment. Your academy slot has not been booked.')
-      return
-    }
-
-    const rzp = new window.Razorpay({
-      key: orderData.keyId,
-      amount: orderData.amount,
-      currency: orderData.currency,
-      name: BIZ.name,
+    await startRazorpayPayment({
+      businessName: BIZ.name,
+      amountInr: payAmount,
       description: `${course.name} · ${payOptionLabel}`,
-      order_id: orderData.orderId,
+      serviceName: `Academy · ${course.name} (${payOptionLabel})`,
+      date: f.batch,
       prefill: {
         name: f.sn.trim(),
         email: user?.email || '',
         contact: digits(f.sp).slice(-10),
       },
-      theme: { color: '#a85f5a' },
-      modal: {
-        ondismiss: () => {
-          setBusy(false)
-          setErr('Payment was cancelled. Your academy slot is not booked until payment succeeds.')
-        },
-      },
-      handler: async (response) => {
-        try {
-          const verifyRes = await fetch('/api/razorpay/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(response),
-          })
-          const verifyData = await verifyRes.json().catch(() => ({}))
-          if (!verifyRes.ok || !verifyData.verified) {
-            setErr(verifyData.error || 'Payment could not be verified. Your academy slot has not been booked.')
-            setBusy(false)
-            return
-          }
-          await saveApplication(verifyData.paymentId, true)
-        } catch {
-          setErr('Could not verify payment with the server. Please contact us with your Razorpay payment ID.')
-        } finally {
-          setBusy(false)
-        }
-      },
+      onVerified: (paymentId) => saveApplication(paymentId, true),
+      onError: (msg) => setErr(msg),
+      onDone: () => setBusy(false),
     })
-
-    rzp.on('payment.failed', (resp) => {
-      setBusy(false)
-      setErr(resp?.error?.description || 'Payment failed. Your academy slot is not booked until payment succeeds.')
-    })
-
-    rzp.open()
   }
 
   const field = (k, label, opts = {}) => (
@@ -392,7 +340,22 @@ export default function ApplyFlow({ initialCourseId }) {
                       <div className="qrbox">
                         <b>Pay {inr(payAmount)} by UPI</b>
                         <img className="qr" src="/upi-qr.png" alt={`UPI QR code for ${BIZ.trainer}`} />
-                        <div className="note">Any UPI app · UPI ID <b>{BIZ.upi}</b></div>
+                        <div className="upi-acts">
+                          <a
+                            className="btn sm"
+                            href={`upi://pay?pa=${encodeURIComponent(BIZ.upi)}&pn=${encodeURIComponent(BIZ.name)}&am=${payAmount}&cu=INR&tn=${encodeURIComponent(`Course ${course.name}`)}`}
+                          >
+                            Open UPI App ({inr(payAmount)})
+                          </a>
+                          <button
+                            type="button"
+                            className="btn ghost sm"
+                            onClick={() => { navigator.clipboard?.writeText(BIZ.upi); toast('UPI ID copied') }}
+                          >
+                            Copy UPI ID
+                          </button>
+                        </div>
+                        <div className="note">GPay, PhonePe, Paytm · UPI ID <b>{BIZ.upi}</b></div>
                       </div>
                       <div className="field" style={{ marginTop: 16 }}><label>UTR / transaction ID (after paying)</label><input className={bad.u ? 'bad' : ''} value={f.u} onChange={set('u')} /></div>
                     </>

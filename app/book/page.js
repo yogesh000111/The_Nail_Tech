@@ -5,9 +5,10 @@ import { useAuth } from '../../components/AuthProvider'
 import AuthGate from '../../components/AuthGate'
 import PageHead from '../../components/PageHead'
 import Done from '../../components/Done'
+import { toast } from '../../components/Toaster'
 import { useCatalog } from '../../lib/catalog'
 import { BIZ } from '../../lib/config'
-import { loadRazorpay } from '../../lib/razorpay-client'
+import { loadRazorpay, startRazorpayPayment } from '../../lib/razorpay-client'
 import { digits, earliest, fmt, inr, wa } from '../../lib/utils'
 
 export default function Book() {
@@ -27,6 +28,7 @@ export default function Book() {
   const [done, setDone] = useState(null)
 
   useEffect(() => {
+    loadRazorpay()
     fetch('/api/razorpay/order')
       .then((r) => r.json())
       .then((d) => {
@@ -137,6 +139,7 @@ export default function Book() {
       setErr(payMethod === 'upi'
         ? 'Please check the highlighted fields. Mobile needs 10 digits, and the UTR is needed after paying.'
         : 'Please check the highlighted fields. Name and 10-digit mobile number are required.')
+      setTimeout(() => document.querySelector('.bad')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)
       return
     }
 
@@ -148,76 +151,21 @@ export default function Book() {
     }
 
     setBusy(true); setErr('')
-    const loaded = await loadRazorpay()
-    if (!loaded || !window.Razorpay) {
-      setBusy(false)
-      setErr('Could not load Razorpay Checkout. Check your internet connection or use UPI QR (Manual check).')
-      return
-    }
-
-    const orderRes = await fetch('/api/razorpay/order', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        amountPaise: adv * 100,
-        serviceName: s.name + (rem ? ' + removal' : ''),
-        date,
-      }),
-    })
-    const orderData = await orderRes.json().catch(() => ({}))
-    if (!orderRes.ok || !orderData.orderId) {
-      setBusy(false)
-      setErr(orderData.error || 'Could not start Razorpay payment. Your booking has not been confirmed.')
-      return
-    }
-
-    const rzp = new window.Razorpay({
-      key: orderData.keyId,
-      amount: orderData.amount,
-      currency: orderData.currency,
-      name: BIZ.name,
+    await startRazorpayPayment({
+      businessName: BIZ.name,
+      amountInr: adv,
       description: `50% Advance · ${s.name}${rem ? ' + removal' : ''}`,
-      order_id: orderData.orderId,
+      serviceName: s.name + (rem ? ' + removal' : ''),
+      date,
       prefill: {
         name: f.n.trim(),
         email: user?.email || '',
         contact: digits(f.p).slice(-10),
       },
-      theme: { color: '#a85f5a' },
-      modal: {
-        ondismiss: () => {
-          setBusy(false)
-          setErr('Payment was cancelled. Your booking is not confirmed until payment succeeds.')
-        },
-      },
-      handler: async (response) => {
-        try {
-          const verifyRes = await fetch('/api/razorpay/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(response),
-          })
-          const verifyData = await verifyRes.json().catch(() => ({}))
-          if (!verifyRes.ok || !verifyData.verified) {
-            setErr(verifyData.error || 'Payment could not be verified. Your booking has not been confirmed.')
-            setBusy(false)
-            return
-          }
-          await saveBooking(verifyData.paymentId, true)
-        } catch {
-          setErr('Could not verify payment with the server. Please contact us with your Razorpay payment ID.')
-        } finally {
-          setBusy(false)
-        }
-      },
+      onVerified: (paymentId) => saveBooking(paymentId, true),
+      onError: (msg) => setErr(msg),
+      onDone: () => setBusy(false),
     })
-
-    rzp.on('payment.failed', (resp) => {
-      setBusy(false)
-      setErr(resp?.error?.description || 'Payment failed. Your booking is not confirmed until payment succeeds.')
-    })
-
-    rzp.open()
   }
 
   return (
@@ -286,7 +234,22 @@ export default function Book() {
                       <div className="qrbox">
                         <b>Pay {inr(adv)} advance by UPI</b>
                         <img className="qr" src="/upi-qr.png" alt={`UPI QR code for ${BIZ.trainer}`} />
-                        <div className="note">Any UPI app · UPI ID <b>{BIZ.upi}</b></div>
+                        <div className="upi-acts">
+                          <a
+                            className="btn sm"
+                            href={`upi://pay?pa=${encodeURIComponent(BIZ.upi)}&pn=${encodeURIComponent(BIZ.name)}&am=${adv}&cu=INR&tn=${encodeURIComponent(`Advance for ${s.name}`)}`}
+                          >
+                            Open UPI App ({inr(adv)})
+                          </a>
+                          <button
+                            type="button"
+                            className="btn ghost sm"
+                            onClick={() => { navigator.clipboard?.writeText(BIZ.upi); toast('UPI ID copied') }}
+                          >
+                            Copy UPI ID
+                          </button>
+                        </div>
+                        <div className="note">GPay, PhonePe, Paytm · UPI ID <b>{BIZ.upi}</b></div>
                       </div>
                       <div className="field" style={{ marginTop: 16 }}><label>UTR / transaction ID (after paying)</label><input className={bad.u ? 'bad' : ''} value={f.u} onChange={set('u')} /></div>
                       <p className="note" style={{ margin: 0 }}>Manual UPI requests stay pending until {BIZ.trainer} verifies your UTR.</p>

@@ -4,11 +4,19 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useAuth } from './AuthProvider'
 
-const LINKS = [['/', 'Home'], ['/courses', 'Courses'], ['/apply', 'Join Academy'], ['/services', 'Services'], ['/book', 'Book'], ['/about', 'About']]
+const LINKS = [
+  ['/', 'Home'],
+  ['/courses', 'Courses'],
+  ['/apply', 'Join Academy'],
+  ['/services', 'Services'],
+  ['/book', 'Book'],
+  ['/about', 'About'],
+  ['/admin', 'Admin'],
+]
 
 export default function Header() {
   const path = usePathname()
-  const { user, displayName, role, ready, openAuth, signOut } = useAuth()
+  const { user, displayName, ready, openAuth, signOut } = useAuth()
   const [open, setOpen] = useState(false)
   const [menu, setMenu] = useState(false)
   const [solid, setSolid] = useState(false)
@@ -48,7 +56,7 @@ export default function Header() {
                 <div className="pop">
                   <div className="pop-h">{name}<small>{user.email}</small></div>
                   <Link href="/account">My account</Link>
-                  {role === 'admin' && <Link href="/admin">Admin panel</Link>}
+                  <Link href="/admin">Admin login</Link>
                   <button onClick={signOut}>Log out</button>
                 </div>
               )}
@@ -64,11 +72,17 @@ export default function Header() {
       </div>
       {open && (
         <div className="drawer">
-          {LINKS.map(([h, l]) => (<Link key={h} href={h} className={on(h) ? 'on' : ''}>{l}</Link>))}
+          {LINKS.map(([h, l]) => (<Link key={h} href={h} className={on(h) ? 'on' : ''}>{l === 'Admin' ? 'Admin login' : l}</Link>))}
           {ready && (user ? (
-            <Link href="/account" className={on('/account') ? 'on' : ''}>My account ({name})</Link>
+            <div className="drawer-acts">
+              <Link href="/account" className={on('/account') ? 'on' : ''}>My account ({name})</Link>
+              <button className="btn ghost block" onClick={() => { setOpen(false); signOut() }}>Log out</button>
+            </div>
           ) : (
-            <button className="btn ghost block" onClick={() => { setOpen(false); openAuth('in') }}>Sign in</button>
+            <div className="drawer-acts">
+              <button className="btn block" onClick={() => { setOpen(false); openAuth('up') }}>Create account</button>
+              <button className="btn ghost block" onClick={() => { setOpen(false); openAuth('in') }}>Sign in</button>
+            </div>
           ))}
         </div>
       )}

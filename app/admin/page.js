@@ -401,7 +401,7 @@ export default function Admin() {
             )}
           </div>
 
-          <div className="grid g4" style={{ marginBottom: 18 }}>
+          <div className="grid g4 kpi-grid" style={{ marginBottom: 18 }}>
             <div className="card stat"><b>{totalPending}</b><span>pending to review</span></div>
             <div className="card stat"><b>{bothFlowStats.courseApplicants.length}</b><span>applied Join Academy ({apps.length} total)</span></div>
             <div className="card stat"><b>{bothFlowStats.bookingClients.length}</b><span>booked Appointment ({bk.length} total)</span></div>
@@ -426,7 +426,7 @@ export default function Admin() {
           </div>
 
           <div className="admin-bar">
-            <div className="tabs" style={{ margin: 0 }}>
+            <div className="tabs admin-tabs" style={{ margin: 0 }}>
               <button className={t === 'p' ? 'on' : ''} onClick={() => setT('p')}>Pending ({totalPending})</button>
               <button className={t === 'both' ? 'on' : ''} onClick={() => setT('both')}>Both Flows ({bothFlowStats.both.length})</button>
               <button className={t === 'b' ? 'on' : ''} onClick={() => setT('b')}>Bookings ({bk.length})</button>
