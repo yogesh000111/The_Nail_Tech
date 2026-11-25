@@ -93,15 +93,17 @@ export async function POST(req) {
   }
 
   const { user } = await getSupabaseAdminUser(req)
-  if (!user) {
-    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 })
-  }
 
   if (kind === 'application') {
+    const studentName = String(body?.studentName || '').trim()
+    const studentPhone = String(body?.studentPhone || '').trim()
+    if (studentName.length < 2 || studentPhone.length < 10) {
+      return NextResponse.json({ error: 'Valid student name and mobile number are required.' }, { status: 400 })
+    }
     const entry = {
-      id: String(body?.applicationId || `app_${Date.now()}`),
-      userId: user.id,
-      userEmail: user.email || '',
+      id: String(body?.applicationId || `app_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`),
+      userId: user?.id || null,
+      userEmail: user?.email || String(body?.userEmail || '').trim(),
       courseId: body?.courseId,
       courseName: String(body?.courseName || ''),
       courseFee: Number(body?.courseFee || 0),
@@ -113,8 +115,8 @@ export async function POST(req) {
       paymentMethod: String(body?.paymentMethod || ''),
       paymentRef: String(body?.paymentRef || ''),
       paymentVerified: !!body?.paymentVerified,
-      studentName: String(body?.studentName || ''),
-      studentPhone: String(body?.studentPhone || ''),
+      studentName,
+      studentPhone,
       age: String(body?.age || ''),
       city: String(body?.city || ''),
       parentName: String(body?.parentName || ''),
@@ -129,12 +131,17 @@ export async function POST(req) {
   }
 
   if (kind === 'booking') {
+    const clientName = String(body?.clientName || '').trim()
+    const clientPhone = String(body?.clientPhone || '').trim()
+    if (clientName.length < 2 || clientPhone.length < 10) {
+      return NextResponse.json({ error: 'Valid name and mobile number are required.' }, { status: 400 })
+    }
     const entry = {
-      id: String(body?.bookingId || `bk_${Date.now()}`),
-      userId: user.id,
-      userEmail: user.email || '',
-      clientName: String(body?.clientName || ''),
-      clientPhone: String(body?.clientPhone || ''),
+      id: String(body?.bookingId || `bk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`),
+      userId: user?.id || null,
+      userEmail: user?.email || String(body?.clientEmail || '').trim(),
+      clientName,
+      clientPhone,
       serviceName: String(body?.serviceName || ''),
       date: String(body?.date || ''),
       startHour: Number(body?.startHour),

@@ -2,7 +2,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../components/AuthProvider'
-import AuthGate from '../../components/AuthGate'
 import PageHead from '../../components/PageHead'
 import Done from '../../components/Done'
 import { toast } from '../../components/Toaster'
@@ -12,8 +11,8 @@ import { loadRazorpay, startRazorpayPayment } from '../../lib/razorpay-client'
 import { digits, earliest, fmt, inr, upiUrl, wa } from '../../lib/utils'
 
 export default function Book() {
-  const { user, profile, displayName, syncPhoneIfEmpty, ready } = useAuth()
-  const { services, live, loading: catLoading } = useCatalog()
+  const { user, profile, displayName, syncPhoneIfEmpty, openAuth, ready } = useAuth()
+  const { services, loading: catLoading } = useCatalog()
   const [si, setSi] = useState(0)
   const [rem, setRem] = useState(false)
   const [date, setDate] = useState('')
@@ -22,7 +21,7 @@ export default function Book() {
   const [payMethod, setPayMethod] = useState('razorpay')
   const [rzpReady, setRzpReady] = useState(true)
   const [rzpTestMode, setRzpTestMode] = useState(false)
-  const [f, setF] = useState({ n: '', p: '', u: '' })
+  const [f, setF] = useState({ n: '', p: '', e: '', u: '' })
   const [bad, setBad] = useState({})
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -53,6 +52,7 @@ export default function Book() {
       ...p,
       n: p.n || name || '',
       p: p.p || profile?.phone || '',
+      e: p.e || user?.email || '',
     }))
   }, [profile, displayName, user])
 
@@ -74,16 +74,25 @@ export default function Book() {
 
   async function saveBooking(paymentRef, isVerifiedOnline) {
     const start = `${date}T${String(time).padStart(2, '0')}:00:00+05:30`
-    const { data, error } = await supabase.from('bookings').insert({
-      service_id: s.id, with_removal: rem, start_at: start, client_name: f.n.trim(), client_phone: f.p.trim(), utr: paymentRef,
-    }).select().single()
-    if (error) { setErr(error.message); return false }
-    await syncPhoneIfEmpty(f.p.trim())
+    let bookingId = ''
+    let token = ''
+
+    if (user) {
+      const { data, error } = await supabase.from('bookings').insert({
+        service_id: s.id, with_removal: rem, start_at: start, client_name: f.n.trim(), client_phone: f.p.trim(), utr: paymentRef,
+      }).select().single()
+      if (error) { setErr(error.message); return false }
+      bookingId = data.id
+      await syncPhoneIfEmpty(f.p.trim())
+      try {
+        const { data: sess } = await supabase.auth.getSession()
+        token = sess?.session?.access_token || ''
+      } catch {}
+    }
+
     const sv = s.name + (rem ? ' + removal' : '')
     try {
-      const { data: sess } = await supabase.auth.getSession()
-      const token = sess?.session?.access_token
-      await fetch('/api/responses', {
+      const res = await fetch('/api/responses', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -91,9 +100,10 @@ export default function Book() {
         },
         body: JSON.stringify({
           kind: 'booking',
-          bookingId: data.id,
+          ...(bookingId ? { bookingId } : {}),
           clientName: f.n.trim(),
           clientPhone: f.p.trim(),
+          clientEmail: f.e.trim() || user?.email || '',
           serviceName: sv,
           date,
           startHour: time,
@@ -104,8 +114,20 @@ export default function Book() {
           paymentVerified: isVerifiedOnline,
         }),
       })
-    } catch {}
-    const ref = data.id.slice(0, 6).toUpperCase()
+      const rData = await res.json().catch(() => ({}))
+      if (!bookingId && !res.ok) {
+        setErr(rData.error || 'Could not save booking. Please contact us with your payment ID.')
+        return false
+      }
+      if (!bookingId) bookingId = rData?.entry?.id || `BK${Date.now()}`
+    } catch {
+      if (!bookingId) {
+        setErr('Network error while saving booking. Please contact us on WhatsApp.')
+        return false
+      }
+    }
+
+    const ref = String(bookingId).slice(-6).toUpperCase()
     setDone({
       pending: !isVerifiedOnline,
       title: isVerifiedOnline ? 'Your slot is booked!' : 'Booking request submitted',
@@ -161,7 +183,7 @@ export default function Book() {
       date,
       prefill: {
         name: f.n.trim(),
-        email: user?.email || '',
+        email: f.e.trim() || user?.email || '',
         contact: digits(f.p).slice(-10),
       },
       onVerified: (paymentId) => saveBooking(paymentId, true),
@@ -177,13 +199,17 @@ export default function Book() {
       </PageHead>
       <section className="section tight">
         <div className="container">
-          {done ? <Done d={done} /> : (!ready || catLoading) ? <p className="mut">Loading...</p> : !user ? (
-            <AuthGate title="Sign in to book" text="Sign in with your email to choose a slot and track your bookings." />
-          ) : !live ? (
-            <div className="card gate"><h3>Booking is paused</h3><p className="mut">We cannot reach our booking system right now. Please message us on WhatsApp and we will book you in.</p><a className="btn" href={wa('Hi, I would like to book an appointment.')}>WhatsApp us</a></div>
-          ) : (
+          {done ? <Done d={done} /> : (!ready || catLoading) ? <p className="mut">Loading...</p> : (
             <div className="split">
               <div className="grid">
+                {!user && (
+                  <div className="card" style={{ background: 'var(--sand)', padding: '14px 18px' }}>
+                    <div className="item" style={{ alignItems: 'center' }}>
+                      <span className="note" style={{ fontSize: 14 }}>Booking as a guest — no login required.</span>
+                      <button type="button" className="btn ghost sm" onClick={() => openAuth('in')}>Sign in (optional)</button>
+                    </div>
+                  </div>
+                )}
                 <div className="card">
                   <h3 style={{ marginBottom: 16 }}><span className="num">1</span>Choose your service</h3>
                   <div className="field"><select value={si} onChange={(e) => { setSi(+e.target.value); setTime(null) }}>{services.map((x, i) => (<option key={x.id} value={i}>{x.name} · {inr(x.price_inr)}</option>))}</select></div>
@@ -214,6 +240,7 @@ export default function Book() {
                     <div className="field"><label>Your name</label><input className={bad.n ? 'bad' : ''} autoComplete="name" value={f.n} onChange={set('n')} /></div>
                     <div className="field"><label>Mobile number</label><input className={bad.p ? 'bad' : ''} type="tel" inputMode="numeric" value={f.p} onChange={set('p')} /></div>
                   </div>
+                  <div className="field"><label>Email address (optional, for receipt)</label><input type="email" autoComplete="email" placeholder="you@example.com" value={f.e} onChange={set('e')} /></div>
                   <div className="tabs" style={{ marginBottom: 14 }}>
                     <button type="button" className={payMethod === 'razorpay' ? 'on' : ''} onClick={() => { setPayMethod('razorpay'); setErr('') }}>Razorpay (Instant)</button>
                     <button type="button" className={payMethod === 'upi' ? 'on' : ''} onClick={() => { setPayMethod('upi'); setErr('') }}>UPI / Razorpay.me</button>

@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthProvider'
-import AuthGate from './AuthGate'
 import PageHead from './PageHead'
 import Done from './Done'
 import { toast } from './Toaster'
@@ -13,8 +12,8 @@ import { loadRazorpay, startRazorpayPayment } from '../lib/razorpay-client'
 import { digits, inr, upiUrl } from '../lib/utils'
 
 export default function ApplyFlow({ initialCourseId }) {
-  const { user, profile, displayName, syncPhoneIfEmpty, ready } = useAuth()
-  const { courses, live, loading: catLoading } = useCatalog()
+  const { user, profile, displayName, syncPhoneIfEmpty, openAuth, ready } = useAuth()
+  const { courses, loading: catLoading } = useCatalog()
   const [courseId, setCourseId] = useState(initialCourseId ? String(initialCourseId) : '')
   const [payOption, setPayOption] = useState('seat')
   const [payMethod, setPayMethod] = useState('razorpay')
@@ -23,6 +22,7 @@ export default function ApplyFlow({ initialCourseId }) {
   const [f, setF] = useState({
     sn: '',
     sp: '',
+    se: '',
     age: '',
     city: 'Ludhiana',
     pn: '',
@@ -70,6 +70,7 @@ export default function ApplyFlow({ initialCourseId }) {
       ...prev,
       sn: prev.sn || name || '',
       sp: prev.sp || profile?.phone || '',
+      se: prev.se || user?.email || '',
     }))
   }, [profile, displayName, user])
 
@@ -105,21 +106,28 @@ export default function ApplyFlow({ initialCourseId }) {
   const activeApp = existingApps.find((a) => String(a.course_id) === String(course.id) && a.status !== 'rejected')
 
   async function saveApplication(paymentRef, isVerifiedOnline) {
-    const { data, error } = await supabase.from('applications').insert({
-      course_id: course.id,
-      student_name: f.sn.trim(),
-      student_phone: f.sp.trim(),
-      parent_name: f.pn.trim(),
-      parent_phone: f.pp.trim(),
-    }).select().single()
-    if (error) { setErr(error.message); return false }
+    let appId = ''
+    let token = ''
 
-    await syncPhoneIfEmpty(f.sp.trim())
+    if (user) {
+      const { data, error } = await supabase.from('applications').insert({
+        course_id: course.id,
+        student_name: f.sn.trim(),
+        student_phone: f.sp.trim(),
+        parent_name: f.pn.trim(),
+        parent_phone: f.pp.trim(),
+      }).select().single()
+      if (error) { setErr(error.message); return false }
+      appId = data.id
+      await syncPhoneIfEmpty(f.sp.trim())
+      try {
+        const { data: sess } = await supabase.auth.getSession()
+        token = sess?.session?.access_token || ''
+      } catch {}
+    }
 
     try {
-      const { data: sess } = await supabase.auth.getSession()
-      const token = sess?.session?.access_token
-      await fetch('/api/responses', {
+      const res = await fetch('/api/responses', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -127,7 +135,7 @@ export default function ApplyFlow({ initialCourseId }) {
         },
         body: JSON.stringify({
           kind: 'application',
-          applicationId: data.id,
+          ...(appId ? { applicationId: appId } : {}),
           courseId: course.id,
           courseName: course.name,
           courseFee: course.fee_inr,
@@ -141,6 +149,7 @@ export default function ApplyFlow({ initialCourseId }) {
           paymentVerified: isVerifiedOnline,
           studentName: f.sn.trim(),
           studentPhone: f.sp.trim(),
+          userEmail: f.se.trim() || user?.email || '',
           age: f.age,
           city: f.city.trim(),
           parentName: f.pn.trim(),
@@ -148,9 +157,20 @@ export default function ApplyFlow({ initialCourseId }) {
           notes: f.notes.trim(),
         }),
       })
-    } catch {}
+      const rData = await res.json().catch(() => ({}))
+      if (!appId && !res.ok) {
+        setErr(rData.error || 'Could not save slot application. Please contact us with your payment ID.')
+        return false
+      }
+      if (!appId) appId = rData?.entry?.id || `AP${Date.now()}`
+    } catch {
+      if (!appId) {
+        setErr('Network error while saving slot. Please contact us on WhatsApp.')
+        return false
+      }
+    }
 
-    const ref = data.id.slice(0, 6).toUpperCase()
+    const ref = String(appId).slice(-6).toUpperCase()
     setDone({
       pending: !isVerifiedOnline,
       title: isVerifiedOnline ? 'Your slot is booked!' : 'Slot request submitted — payment pending',
@@ -214,7 +234,7 @@ export default function ApplyFlow({ initialCourseId }) {
       date: f.batch,
       prefill: {
         name: f.sn.trim(),
-        email: user?.email || '',
+        email: f.se.trim() || user?.email || '',
         contact: digits(f.sp).slice(-10),
       },
       onVerified: (paymentId) => saveApplication(paymentId, true),
@@ -244,13 +264,17 @@ export default function ApplyFlow({ initialCourseId }) {
       </PageHead>
       <section className="section tight">
         <div className="container">
-          {done ? <Done d={done} /> : (!ready || catLoading) ? <p className="mut">Loading...</p> : !user ? (
-            <AuthGate title="Sign in to join the academy" text="Create an account or sign in with your email to reserve your academy slot and track your logbook." />
-          ) : !live ? (
-            <div className="card gate"><h3>Applications are paused</h3><p className="mut">We cannot reach our system right now. Please message us on WhatsApp.</p></div>
-          ) : (
+          {done ? <Done d={done} /> : (!ready || catLoading) ? <p className="mut">Loading...</p> : (
             <div className="split">
               <div className="grid">
+                {!user && (
+                  <div className="card" style={{ background: 'var(--sand)', padding: '14px 18px' }}>
+                    <div className="item" style={{ alignItems: 'center' }}>
+                      <span className="note" style={{ fontSize: 14 }}>Applying as a guest — no login required.</span>
+                      <button type="button" className="btn ghost sm" onClick={() => openAuth('in')}>Sign in (optional)</button>
+                    </div>
+                  </div>
+                )}
                 {activeApp && (
                   <div className="card" style={{ background: 'var(--blush)', borderColor: 'var(--rose)' }}>
                     <div className="item">
@@ -311,6 +335,10 @@ export default function ApplyFlow({ initialCourseId }) {
                     {field('city', 'City / Area', { placeholder: 'e.g. Ludhiana' })}
                     {field('pn', 'Parent / Guardian name', { placeholder: 'Mother / Father / Guardian' })}
                     {field('pp', 'Parent / Guardian mobile', { type: 'tel', inputMode: 'numeric', placeholder: '10-digit number' })}
+                  </div>
+                  <div className="field">
+                    <label>Student email (optional, for receipt)</label>
+                    <input type="email" autoComplete="email" placeholder="you@example.com" value={f.se} onChange={set('se')} />
                   </div>
                   <div className="field" style={{ marginBottom: 0 }}>
                     <label>Questions or preferred start date (optional)</label>
