@@ -44,7 +44,41 @@ export async function POST(req) {
   })
   const payment = await payRes.json().catch(() => ({}))
 
-  if (!payRes.ok || payment.order_id !== orderId || !['captured', 'authorized'].includes(payment.status)) {
+  if (!payRes.ok || payment.order_id !== orderId) {
+    return NextResponse.json(
+      { verified: false, error: payment?.error?.description || 'Payment does not match this booking order.' },
+      { status: 400 },
+    )
+  }
+
+  let finalStatus = payment.status
+  if (finalStatus === 'authorized') {
+    const capRes = await fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}/capture`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        amount: payment.amount,
+        currency: payment.currency || 'INR',
+      }),
+    })
+    const capData = await capRes.json().catch(() => ({}))
+    if (capRes.ok && capData?.status === 'captured') {
+      finalStatus = 'captured'
+    } else {
+      const recheckRes = await fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+        headers: { Authorization: `Basic ${auth}` },
+      })
+      const recheckData = await recheckRes.json().catch(() => ({}))
+      if (recheckRes.ok && recheckData?.status) {
+        finalStatus = recheckData.status
+      }
+    }
+  }
+
+  if (finalStatus !== 'captured') {
     return NextResponse.json(
       { verified: false, error: payment?.error?.description || 'Payment has not been captured by Razorpay.' },
       { status: 400 },
@@ -55,6 +89,6 @@ export async function POST(req) {
     verified: true,
     paymentId,
     orderId,
-    status: payment.status,
+    status: finalStatus,
   })
 }

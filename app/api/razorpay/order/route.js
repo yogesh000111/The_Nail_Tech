@@ -23,7 +23,7 @@ export async function POST(req) {
     return NextResponse.json(
       {
         configured: false,
-        error: 'Razorpay API keys are not set yet. Replace RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env.local with real Razorpay keys and restart the server.',
+        error: 'Razorpay API keys are not configured on the server. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET and redeploy.',
       },
       { status: 503 },
     )

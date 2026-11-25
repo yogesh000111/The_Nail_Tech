@@ -363,7 +363,7 @@ export default function ApplyFlow({ initialCourseId }) {
                       )}
                       {!rzpReady && (
                         <div className="alert" style={{ marginTop: 12, marginBottom: 0, textAlign: 'left' }}>
-                          Razorpay keys in <code>.env.local</code> are not configured. Add them and restart the server, or use UPI QR below.
+                          Razorpay online checkout is not configured on the server yet. Please use UPI QR below.
                           <div style={{ marginTop: 10 }}>
                             <button type="button" className="btn ghost sm" onClick={() => { setPayMethod('upi'); setErr('') }}>Switch to UPI QR (Manual check)</button>
                           </div>
