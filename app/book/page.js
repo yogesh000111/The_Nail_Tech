@@ -216,7 +216,7 @@ export default function Book() {
                   </div>
                   <div className="tabs" style={{ marginBottom: 14 }}>
                     <button type="button" className={payMethod === 'razorpay' ? 'on' : ''} onClick={() => { setPayMethod('razorpay'); setErr('') }}>Razorpay (Instant)</button>
-                    <button type="button" className={payMethod === 'upi' ? 'on' : ''} onClick={() => { setPayMethod('upi'); setErr('') }}>UPI QR (Manual check)</button>
+                    <button type="button" className={payMethod === 'upi' ? 'on' : ''} onClick={() => { setPayMethod('upi'); setErr('') }}>UPI / Razorpay.me</button>
                   </div>
                   {payMethod === 'razorpay' ? (
                     <div className="qrbox">
@@ -239,11 +239,14 @@ export default function Book() {
                   ) : (
                     <>
                       <div className="qrbox">
-                        <b>Pay {inr(adv)} advance by UPI</b>
+                        <b>Pay {inr(adv)} advance via Razorpay.me or UPI</b>
                         <img className="qr" src="/upi-qr.png" alt={`UPI QR code for ${BIZ.trainer}`} />
                         <div className="upi-acts">
-                          <a className="btn sm" href={upiUrl(adv, `Advance ${s.name}`)}>
-                            Open UPI App ({inr(adv)})
+                          <a className="btn sm" href={BIZ.razorpayMe} target="_blank" rel="noopener noreferrer">
+                            Pay via Razorpay.me ({inr(adv)})
+                          </a>
+                          <a className="btn ghost sm" href={upiUrl(adv, `Advance ${s.name}`)}>
+                            Open UPI App
                           </a>
                           <button
                             type="button"
@@ -253,9 +256,9 @@ export default function Book() {
                             Copy UPI ID
                           </button>
                         </div>
-                        <div className="note">UPI ID: <b>{BIZ.upi}</b> · If your UPI app blocks direct links, copy the UPI ID or scan QR and paste the UTR below.</div>
+                        <div className="note">UPI ID: <b>{BIZ.upi}</b> · After paying {inr(adv)} via Razorpay.me or UPI, paste your Payment ID / UTR below.</div>
                       </div>
-                      <div className="field" style={{ marginTop: 16 }}><label>UTR / transaction ID (after paying)</label><input className={bad.u ? 'bad' : ''} value={f.u} onChange={set('u')} /></div>
+                      <div className="field" style={{ marginTop: 16 }}><label>Payment ID / UTR (after paying {inr(adv)})</label><input className={bad.u ? 'bad' : ''} value={f.u} onChange={set('u')} placeholder="e.g. pay_... or 12-digit UTR" /></div>
                       <p className="note" style={{ margin: 0 }}>Manual UPI requests stay pending until {BIZ.trainer} verifies your UTR.</p>
                     </>
                   )}
