@@ -9,8 +9,11 @@ function getKeys() {
 
 /** Reports whether real Razorpay keys are configured in the environment. */
 export async function GET() {
-  const { placeholder } = getKeys()
-  return NextResponse.json({ configured: !placeholder })
+  const { keyId, placeholder } = getKeys()
+  return NextResponse.json({
+    configured: !placeholder,
+    testMode: !placeholder && keyId.startsWith('rzp_test_'),
+  })
 }
 
 /** Creates a Razorpay order for the 50% booking advance. */

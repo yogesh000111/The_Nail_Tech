@@ -9,7 +9,7 @@ import { toast } from '../../components/Toaster'
 import { useCatalog } from '../../lib/catalog'
 import { BIZ } from '../../lib/config'
 import { loadRazorpay, startRazorpayPayment } from '../../lib/razorpay-client'
-import { digits, earliest, fmt, inr, wa } from '../../lib/utils'
+import { digits, earliest, fmt, inr, upiUrl, wa } from '../../lib/utils'
 
 export default function Book() {
   const { user, profile, displayName, syncPhoneIfEmpty, ready } = useAuth()
@@ -21,6 +21,7 @@ export default function Book() {
   const [busySlots, setBusySlots] = useState([])
   const [payMethod, setPayMethod] = useState('razorpay')
   const [rzpReady, setRzpReady] = useState(true)
+  const [rzpTestMode, setRzpTestMode] = useState(false)
   const [f, setF] = useState({ n: '', p: '', u: '' })
   const [bad, setBad] = useState({})
   const [err, setErr] = useState('')
@@ -36,6 +37,7 @@ export default function Book() {
           setRzpReady(d.configured)
           if (!d.configured) setPayMethod('upi')
         }
+        if (typeof d?.testMode === 'boolean') setRzpTestMode(d.testMode)
       })
       .catch(() => {})
   }, [])
@@ -132,12 +134,12 @@ export default function Book() {
     const b = {
       n: f.n.trim().length < 2,
       p: digits(f.p).length < 10,
-      u: payMethod === 'upi' && !f.u.trim(),
+      u: payMethod === 'upi' && f.u.trim().length < 6,
     }
     setBad(b)
     if (Object.values(b).some(Boolean)) {
       setErr(payMethod === 'upi'
-        ? 'Please check the highlighted fields. Mobile needs 10 digits, and the UTR is needed after paying.'
+        ? 'Please check the highlighted fields. Mobile needs 10 digits, and the UTR (at least 6 characters) is needed after paying.'
         : 'Please check the highlighted fields. Name and 10-digit mobile number are required.')
       setTimeout(() => document.querySelector('.bad')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)
       return
@@ -220,6 +222,11 @@ export default function Book() {
                     <div className="qrbox">
                       <b>Pay {inr(adv)} advance securely with Razorpay</b>
                       <p className="note" style={{ margin: '8px 0 0' }}>Supports UPI, Credit/Debit Cards, and NetBanking. Your booking is confirmed only after payment succeeds.</p>
+                      {rzpReady && rzpTestMode && (
+                        <p className="note" style={{ margin: '8px 0 0', color: 'var(--warn)' }}>
+                          Test mode active: use test UPI ID <b>success@razorpay</b> (real UPI IDs require Live Razorpay keys).
+                        </p>
+                      )}
                       {!rzpReady && (
                         <div className="alert" style={{ marginTop: 12, marginBottom: 0, textAlign: 'left' }}>
                           Razorpay keys in <code>.env.local</code> are not set yet (<code>RAZORPAY_KEY_ID</code> and <code>RAZORPAY_KEY_SECRET</code>). Add your keys and restart the server, or use UPI QR below.
@@ -235,10 +242,7 @@ export default function Book() {
                         <b>Pay {inr(adv)} advance by UPI</b>
                         <img className="qr" src="/upi-qr.png" alt={`UPI QR code for ${BIZ.trainer}`} />
                         <div className="upi-acts">
-                          <a
-                            className="btn sm"
-                            href={`upi://pay?pa=${encodeURIComponent(BIZ.upi)}&pn=${encodeURIComponent(BIZ.name)}&am=${adv}&cu=INR&tn=${encodeURIComponent(`Advance for ${s.name}`)}`}
-                          >
+                          <a className="btn sm" href={upiUrl(adv, `Advance ${s.name}`)}>
                             Open UPI App ({inr(adv)})
                           </a>
                           <button
@@ -249,7 +253,7 @@ export default function Book() {
                             Copy UPI ID
                           </button>
                         </div>
-                        <div className="note">GPay, PhonePe, Paytm · UPI ID <b>{BIZ.upi}</b></div>
+                        <div className="note">UPI ID: <b>{BIZ.upi}</b> · If your UPI app blocks direct links, copy the UPI ID or scan QR and paste the UTR below.</div>
                       </div>
                       <div className="field" style={{ marginTop: 16 }}><label>UTR / transaction ID (after paying)</label><input className={bad.u ? 'bad' : ''} value={f.u} onChange={set('u')} /></div>
                       <p className="note" style={{ margin: 0 }}>Manual UPI requests stay pending until {BIZ.trainer} verifies your UTR.</p>
